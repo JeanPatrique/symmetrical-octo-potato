@@ -10,7 +10,7 @@ from pickle import Pickler
 
 
 class Manager():
-    def __init__(self, fps=60) -> None:
+    def __init__(self, fps=30) -> None:
         self.running=True
         self.lockRunning=Lock()
 
@@ -47,6 +47,7 @@ class KeyboardManager(Thread, Manager):
     def run(self)->None:
         with keyboard.Events() as events:
             for event in events:
+                sleep(1/self.fps)
                 if self.continu():
                     self.dumpNewTouch(event)
                 else:
@@ -105,6 +106,7 @@ class MouseManager(Thread, Manager):
     def run(self)->None:
         with mouse.Events() as events:
             for event in events:
+                sleep(1/self.fps)
                 if self.continu():
                     self.dumpNewTouch(event)
                 else:

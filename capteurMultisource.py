@@ -3,7 +3,7 @@ from time import time, sleep
 from tkinter.messagebox import showwarning
 from numpy import array
 from pyautogui import screenshot
-from pynput import keyboard
+from pynput import keyboard, mouse
 from tkinter import PhotoImage, Tk, Button, Label
 from pickle import Pickler
 
@@ -84,12 +84,32 @@ class ScreenManager(Thread, Manager):
             self.takeScreenShot()
         self.saveImages()
 
-class SoundManager(Thread, Manager):
+class MouseManager(Thread, Manager):
     def __init__(self) -> None:
-        Thread.__init__(self,daemon=True)
+        Thread.__init__(self, daemon=True)
         Manager.__init__(self)
 
-    def run(self):pass
+        self.click=list()
+        self.lockclick=Lock()
+
+    def dumpNewTouch(self, key, forceDumping=False):
+        if len(self.click)>100 or forceDumping:
+            with self.lockclick:
+                flushThread=Thread(target=flushClick, args=[self.click, self.firstTime, time()])
+                self.click=list()
+            flushThread.start()
+            self.firstTime=time()
+        else:
+            self.click.append((key, time()))
+
+    def run(self)->None:
+        with mouse.Events() as events:
+            for event in events:
+                if self.continu():
+                    self.dumpNewTouch(event)
+                else:
+                    self.dumpNewTouch(event, forceDumping=True)
+                    break
 
 
 # ---------------------------------------------------- fonction de flush
@@ -99,18 +119,23 @@ def flushImages(images, Tdebut, Tfin):
         pickler.dump(images)
 
 def flushTouch(touches, Tdebut, Tfin):
-    with open(f"../data/raw/touches/clavier_{Tdebut}_{Tfin}", "wb") as fichier:
+    with open(f"../data/raw/clavier/clavier_{Tdebut}_{Tfin}", "wb") as fichier:
         pickler=Pickler(fichier)
         pickler.dump(touches)
+
+def flushClick(clicks, Tdebut, Tfin):
+    with open(f"../data/raw/souris/souris_{Tdebut}_{Tfin}", "wb") as fichier:
+        pickler=Pickler(fichier)
+        pickler.dump(clicks)
 # ---------------------------------------------------- fonction de flush
 # ---------------------------------------------------- fonction de controle de l'enregistrement
 class Monitor(Thread):
-    def __init__(self, ecran, clavier, son, label=None, rafraichissmentParSec=1) -> None:
+    def __init__(self, ecran, clavier, souris, label=None, rafraichissmentParSec=1) -> None:
         super().__init__(daemon=True)
         #ressources
         self.ecran=ecran
         self.clavier=clavier
-        self.son=son
+        self.souris=souris
         
         # monitoring
         self.label=label
@@ -126,24 +151,25 @@ class Monitor(Thread):
             self.clavier.start()
         if self.ecran:
             self.ecran.start()
-        if self.son:
-            self.son.start()
+        if self.souris:
+            self.souris.start()
 
     def arrete(self):
         """arrête l'enregistrement"""
         self.clavier.arrete()
         self.ecran.arrete()
+        self.souris.arrete()
         
-        #with self.lockRunning:
-        #    self.running=False
 
     def arretTotale(self):
         self.clavier.arrete()
         self.ecran.arrete()
-        
+        self.souris.arrete()
+
         self.clavier.join()
         self.ecran.join()
-        
+        self.souris.join()
+
         with self.lockRunning:
             self.running=False
     
@@ -153,18 +179,18 @@ class Monitor(Thread):
         while self.continuing() :
             clavierAlive=False
             ecranAlive=False
-            sonAlive=False
+            sourisAlive=False
             if self.clavier!=None:
                 if self.clavier.is_alive():
                     clavierAlive=True
             if self.ecran!=None:
                 if self.ecran.is_alive():
                     ecranAlive=True
-            if self.son!=None:
-                if self.son.is_alive():
-                    sonAlive=True
+            if self.souris!=None:
+                if self.souris.is_alive():
+                    sourisAlive=True
                       
-            self.label.config(text=f"Clavier : {'[En ligne]' if clavierAlive else '[Hors ligne]'}\nEcran : {'[En ligne]' if ecranAlive else '[Hors ligne]'}\nSon : {'[En ligne]' if sonAlive else '[Hors ligne]'}")
+            self.label.config(text=f"Clavier : {'[En ligne]' if clavierAlive else '[Hors ligne]'}\nEcran : {'[En ligne]' if ecranAlive else '[Hors ligne]'}\nsouris : {'[En ligne]' if sourisAlive else '[Hors ligne]'}")
                         
             sleep(1/self.update)
 
@@ -180,7 +206,7 @@ class Gui():
         self.monitor=None    
         self.ecran=ScreenManager()
         self.clavier=KeyboardManager()
-        self.son=SoundManager()
+        self.souris=MouseManager()
 
         # GUI
         self.root=Tk()
@@ -200,7 +226,7 @@ class Gui():
         self.buttonStop.grid(column=1, row=2)
         self.buttonQuitter.grid(column=0, row=3, columnspan=2)
 
-        showwarning(title="ATTENTION/WARNING", message="ATTENTION : ce script est très gourmand en ressources : \n\nRAM : +2Go (uniquement dédier a ce script)\nDISQUE : 170Mo/s (uniquement dédier a ce script)\n\nUN PROBLEME AUSSI : POUR ETEIENDRE LA SOURCES 'CLAVIER' APPUYEZ SUR UNE TOUCHE APRES STOP")
+        showwarning(title="ATTENTION/WARNING", message="ATTENTION : ce script est très gourmand en ressources : \n\nRAM : + 2Go (uniquement dédier a ce script)\nDISQUE : 170Mo/s (uniquement dédier a ce script)\n\nUN PROBLEME AUSSI : POUR ETEIENDRE LA SOURCES 'CLAVIER' APPUYEZ SUR UNE TOUCHE APRES STOP")
         
         self.root.mainloop()
 
@@ -208,14 +234,14 @@ class Gui():
         if self.monitor:
             self.labelStatus.config(text="mise en pause du moniteur")
             self.monitor.arrete()
-            self.labelStatus.config(text="En pause : les enregistrements sont arrêté")
+            self.labelStatus.config(text="En pause : les enregistrements sourist arrêté")
         else:
             self.labelStatus.config(text="Problème -> rien ne peut être arrêté :O -> vous n'avez rien démarré :p")
     def start(self):
         if not self.monitor:
             # initialisation du moniteur
             self.labelStatus.config(text="Initialisation du moniteur")
-            self.monitor=Monitor(self.ecran, self.clavier, None, self.labelMonitoring)
+            self.monitor=Monitor(self.ecran, self.clavier, self.souris, self.labelMonitoring)
             self.labelStatus.config(text="En fonction : enregistrement activé")
             self.monitor.start()
         elif not self.monitor.is_alive():
